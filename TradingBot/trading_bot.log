@@ -1,0 +1,42 @@
+2025-04-01 23:37:19,206 - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://10.20.111.55:5000
+2025-04-01 23:37:19,207 - INFO - [33mPress CTRL+C to quit[0m
+2025-04-01 23:37:19,209 - INFO -  * Restarting with stat
+2025-04-01 23:37:20,274 - WARNING -  * Debugger is active!
+2025-04-01 23:37:20,278 - INFO -  * Debugger PIN: 590-385-475
+2025-04-01 23:37:29,987 - INFO - 127.0.0.1 - - [01/Apr/2025 23:37:29] "OPTIONS /simulate HTTP/1.1" 200 -
+2025-04-01 23:37:30,251 - INFO - === New Trading Simulation Request ===
+2025-04-01 23:37:30,252 - INFO - Fetching ETH/USDT data - Interval: 1m, Limit: 100
+2025-04-01 23:37:31,667 - INFO - Successfully fetched 100 records. Latest data: 1908.22 at 2025-04-01 20:07:00
+2025-04-01 23:37:31,668 - INFO - Calculating technical indicators...
+2025-04-01 23:37:31,668 - ERROR - Error calculating indicators: 'ema_8'
+2025-04-01 23:37:31,668 - ERROR - !!! Simulation Error: 'ema_8'
+Traceback (most recent call last):
+  File "C:\Users\Ramtin\AppData\Local\Programs\Python\Python313\Lib\site-packages\pandas\core\indexes\base.py", line 3805, in get_loc
+    return self._engine.get_loc(casted_key)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+  File "index.pyx", line 167, in pandas._libs.index.IndexEngine.get_loc
+  File "index.pyx", line 196, in pandas._libs.index.IndexEngine.get_loc
+  File "pandas\\_libs\\hashtable_class_helper.pxi", line 7081, in pandas._libs.hashtable.PyObjectHashTable.get_item
+  File "pandas\\_libs\\hashtable_class_helper.pxi", line 7089, in pandas._libs.hashtable.PyObjectHashTable.get_item
+KeyError: 'ema_8'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Ramtin\Desktop\Coding\Python\PyCode\TradingBot\bot.py", line 145, in simulate_trade
+    df = calculate_indicators(df)
+  File "C:\Users\Ramtin\Desktop\Coding\Python\PyCode\TradingBot\bot.py", line 79, in calculate_indicators
+    f"EMA8: {last_row['ema_8']:.2f}, "
+             ~~~~~~~~^^^^^^^^^
+  File "C:\Users\Ramtin\AppData\Local\Programs\Python\Python313\Lib\site-packages\pandas\core\series.py", line 1121, in __getitem__
+    return self._get_value(key)
+           ~~~~~~~~~~~~~~~^^^^^
+  File "C:\Users\Ramtin\AppData\Local\Programs\Python\Python313\Lib\site-packages\pandas\core\series.py", line 1237, in _get_value
+    loc = self.index.get_loc(label)
+  File "C:\Users\Ramtin\AppData\Local\Programs\Python\Python313\Lib\site-packages\pandas\core\indexes\base.py", line 3812, in get_loc
+    raise KeyError(key) from err
+KeyError: 'ema_8'
+2025-04-01 23:37:31,711 - INFO - 127.0.0.1 - - [01/Apr/2025 23:37:31] "[35m[1mPOST /simulate HTTP/1.1[0m" 500 -
