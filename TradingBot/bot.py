@@ -18,8 +18,8 @@ BINANCE_API_URL = "https://api.binance.com/api/v3"
 RESULTS_DIR = "results"
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
-class ScalpingBot: #scalpingBot
-    def __init__(self, initial_balance=100): 
+class ScalpingBot:
+    def __init__(self, initial_balance=100):
         self.initial_balance = initial_balance
         self.balance = initial_balance
         self.eth_balance = 0
@@ -76,34 +76,40 @@ class ScalpingBot: #scalpingBot
         return df
 
     def generate_signal(self, row, prev_row):
-        """Generate trading signal based on scalping strategy"""
-        buy_conditions = [
+        """More flexible signal generation"""
+        # Buy when majority of conditions are met
+        buy_score = sum([
             row['ema_8'] > row['ema_21'],
-            row['rsi'] < 70,
+            row['rsi'] < 65,  # More flexible RSI
             row['macd'] > row['macd_signal'],
             row['close'] > row['bb_middle'],
             prev_row['macd'] <= prev_row['macd_signal']
-        ]
+        ])
         
-        sell_conditions = [
+        # Sell when majority of conditions are met
+        sell_score = sum([
             row['ema_8'] < row['ema_21'],
-            row['rsi'] > 30,
+            row['rsi'] > 35,  # More flexible RSI
             row['macd'] < row['macd_signal'],
             row['close'] < row['bb_middle'],
             prev_row['macd'] >= prev_row['macd_signal']
-        ]
-        
-        return 'buy' if all(buy_conditions) else 'sell' if all(sell_conditions) else 'hold'
+        ])
+    
+    # Require at least 4/5 conditions
+        if buy_score >= 4:
+            return 'buy'
+        elif sell_score >= 4:
+            return 'sell'
+        return 'hold'
 
     def execute_trade(self, signal, price, timestamp):
-        """Execute trade based on signal"""
+        """Execute trade with proper datetime handling"""
         if signal == 'buy' and self.current_trade is None:
-            # Calculate position size (use 100% of balance for aggressive growth)
             self.eth_balance = self.balance / price
             self.balance = 0
             self.current_trade = {
                 'entry_price': price,
-                'entry_time': timestamp,
+                'entry_time': pd.to_datetime(timestamp) if isinstance(timestamp, str) else timestamp,
                 'position_size': self.eth_balance
             }
             return True
@@ -111,14 +117,13 @@ class ScalpingBot: #scalpingBot
         elif signal == 'sell' and self.current_trade is not None:
             self.balance = self.eth_balance * price
             profit = self.balance - self.initial_balance
-            profit_pct = (profit / self.initial_balance) * 100
             
             self.trades.append({
                 **self.current_trade,
                 'exit_price': price,
-                'exit_time': timestamp,
+                'exit_time': pd.to_datetime(timestamp) if isinstance(timestamp, str) else timestamp,
                 'profit': profit,
-                'profit_pct': profit_pct
+                'profit_pct': (profit / self.initial_balance) * 100
             })
             
             self.eth_balance = 0
@@ -126,6 +131,29 @@ class ScalpingBot: #scalpingBot
             return True
         
         return False
+
+    def generate_results(self):
+        """Generate results with serializable datetimes"""
+        results = {
+            'initial_balance': self.initial_balance,
+            'final_balance': self.balance,
+            'total_profit': sum(trade['profit'] for trade in self.trades),
+            'profit_pct': (self.balance - self.initial_balance) / self.initial_balance * 100,
+            'num_trades': len(self.trades),
+            'win_rate': (sum(1 for t in self.trades if t['profit'] > 0) / len(self.trades) * 100 if self.trades else 0),
+            'trades': self.trades.copy(),
+            'strategy_name': self.strategy_name,
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        # Ensure all datetimes are strings
+        for trade in results['trades']:
+            for time_key in ['entry_time', 'exit_time']:
+                if time_key in trade and trade[time_key] is not None:
+                    if isinstance(trade[time_key], (pd.Timestamp, datetime)):
+                        trade[time_key] = trade[time_key].isoformat()
+        
+        return results
 
     def backtest(self, days=30):
         """Backtest strategy on historical data"""
@@ -171,7 +199,65 @@ class ScalpingBot: #scalpingBot
         with open(filename, 'w') as f:
             json.dump(results, f, indent=2, default=str)
         return filename
-
+    
+@app.route('/debug/conditions', methods=['GET'])
+def debug_conditions():
+    """Endpoint to check current market conditions"""
+    try:
+        bot = ScalpingBot(100)
+        df = bot.get_historical_data(days=3)  # Check last 3 days
+        df = bot.calculate_indicators(df)
+        
+        signals = []
+        for i in range(1, len(df)):
+            row = df.iloc[i]
+            prev_row = df.iloc[i-1]
+            
+            # Convert datetime to string for JSON serialization
+            time_str = row['open_time'].isoformat() if pd.notnull(row['open_time']) else None
+            
+            buy_score = sum([
+                row['ema_8'] > row['ema_21'],
+                row['rsi'] < 65,
+                row['macd'] > row['macd_signal'],
+                row['close'] > row['bb_middle']
+            ])
+            
+            sell_score = sum([
+                row['ema_8'] < row['ema_21'],
+                row['rsi'] > 35,
+                row['macd'] < row['macd_signal'],
+                row['close'] < row['bb_middle']
+            ])
+            
+            signals.append({
+                'time': time_str,
+                'price': float(row['close']),
+                'ema_8': float(row['ema_8']),
+                'ema_21': float(row['ema_21']),
+                'rsi': float(row['rsi']),
+                'macd': float(row['macd']),
+                'macd_signal': float(row['macd_signal']),
+                'bb_middle': float(row['bb_middle']),
+                'buy_score': buy_score,
+                'sell_score': sell_score,
+                'signal': 'buy' if buy_score >= 3 else 'sell' if sell_score >= 3 else 'hold'
+            })
+        
+        return jsonify({
+            'success': True,
+            'data_points': len(df),
+            'signals': signals[-20:],  # Last 20 data points
+            'current_conditions': signals[-1] if signals else None
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'data_points': 0,
+            'signals': []
+        }), 500
+    
 @app.route('/backtest', methods=['POST'])
 def run_backtest():
     try:
@@ -183,6 +269,14 @@ def run_backtest():
         results = bot.backtest(days)
         filename = bot.save_results(results, "backtest")
         
+        # Convert datetime objects to strings
+        if 'trades' in results:
+            for trade in results['trades']:
+                if 'entry_time' in trade:
+                    trade['entry_time'] = trade['entry_time'].isoformat() if pd.notnull(trade['entry_time']) else None
+                if 'exit_time' in trade:
+                    trade['exit_time'] = trade['exit_time'].isoformat() if pd.notnull(trade['exit_time']) else None
+        
         return jsonify({
             'success': True,
             'results': results,
@@ -190,50 +284,81 @@ def run_backtest():
         })
     
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'results': {
+                'initial_balance': 100,
+                'final_balance': 100,
+                'total_profit': 0,
+                'profit_pct': 0,
+                'num_trades': 0,
+                'win_rate': 0,
+                'trades': [],
+                'strategy': 'EMA8_21_RSI_MACD_BB'
+            },
+            'file': None
+        }), 500
 
-# @app.route('/live', methods=['POST'])
-# def run_live():
-#     try:
-#         data = request.json or {}
-#         initial_balance = float(data.get('initial_balance', 100))
+@app.route('/live', methods=['POST'])
+def run_live():
+    try:
+        data = request.json or {}
+        initial_balance = float(data.get('initial_balance', 100))
         
-#         bot = ScalpingBot(initial_balance)
-#         # In a real implementation, you would connect to WebSocket here
-#         # For this example, we'll simulate one live signal
+        bot = ScalpingBot(initial_balance)
+        df = bot.get_historical_data(days=1, interval='5m')
+        df = bot.calculate_indicators(df)
         
-#         # Get current data
-#         df = bot.get_historical_data(days=1, interval='1m')
-#         df = bot.calculate_indicators(df)
+        signal = bot.generate_signal(df.iloc[-1], df.iloc[-2])
+        price = float(df.iloc[-1]['close'])
+        timestamp = datetime.now().isoformat()
         
-#         # Generate signal
-#         signal = bot.generate_signal(df.iloc[-1], df.iloc[-2])
-#         price = df.iloc[-1]['close']
-#         timestamp = datetime.now().isoformat()
+        executed = bot.execute_trade(signal, price, timestamp)
         
-#         # Execute trade
-#         executed = bot.execute_trade(signal, price, timestamp)
+        response = {
+            'success': True,
+            'signal': signal,
+            'price': price,
+            'executed': executed,
+            'balance': float(bot.balance),
+            'eth_balance': float(bot.eth_balance),
+            'timestamp': timestamp,
+            'results': None,
+            'file': None
+        }
         
-#         # Prepare response
-#         response = {
-#             'signal': signal,
-#             'price': price,
-#             'executed': executed,
-#             'balance': bot.balance,
-#             'eth_balance': bot.eth_balance,
-#             'timestamp': timestamp
-#         }
+        if executed:
+            results = bot.generate_results()
+            filename = bot.save_results(results, "live_trade")
+            
+            # Convert datetime objects
+            if 'trades' in results:
+                for trade in results['trades']:
+                    if 'entry_time' in trade:
+                        trade['entry_time'] = trade['entry_time'].isoformat() if pd.notnull(trade['entry_time']) else None
+                    if 'exit_time' in trade:
+                        trade['exit_time'] = trade['exit_time'].isoformat() if pd.notnull(trade['exit_time']) else None
+            
+            response.update({
+                'results': results,
+                'file': filename
+            })
         
-#         if executed:
-#             results = bot.generate_results()
-#             filename = bot.save_results(results, "live_trade")
-#             response['results'] = results
-#             response['file'] = filename
-        
-#         return jsonify(response)
+        return jsonify(response)
     
-#     except Exception as e:
-#         return jsonify({'error': str(e)}), 500
-
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'signal': 'error',
+            'price': 0,
+            'executed': False,
+            'balance': float(data.get('initial_balance', 100)),
+            'eth_balance': 0,
+            'timestamp': datetime.now().isoformat(),
+            'results': None,
+            'file': None
+        }), 500
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
