@@ -23,6 +23,7 @@ wheels/
 
 # Virtual Environment
 venv/
+.venv/
 ENV/
 
 # IDE
@@ -35,4 +36,5 @@ ENV/
 splitingImages/images/output/
 *.jpg
 *.jpeg
-*.png 
+*.png
+!docs/artifacts/showcase/*.png
